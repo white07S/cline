@@ -1,5 +1,6 @@
-# Multi-stage Dockerfile for the FastAPI server + Celery worker.
-# Both api and worker use the same image; the command differs.
+# Multi-stage Dockerfile for the FastAPI server + Dagster code location.
+# api, dagster-webserver, and dagster-daemon all use the same image;
+# the command differs per service.
 
 # ── Base ──────────────────────────────────────────────────────────
 FROM python:3.13-slim-bookworm AS base

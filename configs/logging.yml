@@ -3,7 +3,7 @@
 # In dev: pretty console output via ConsoleRenderer.
 # In prod: JSONL via JSONRenderer, one line per log event, ready for promtail → Loki.
 #
-# Both modes route through stdlib logging so FastAPI / uvicorn / SQLAlchemy / Celery
+# Both modes route through stdlib logging so FastAPI / uvicorn / SQLAlchemy / Dagster
 # logs flow through the same pipeline.
 
 logging:
@@ -15,7 +15,7 @@ logging:
     "uvicorn.error": "INFO"
     "uvicorn.access": "WARNING"        # uvicorn access log is noisy; we use OTEL spans instead.
     "sqlalchemy.engine": "WARNING"     # Set to INFO to see all SQL.
-    "celery": "INFO"
+    "dagster": "INFO"
     "httpx": "WARNING"
     "openai": "INFO"
 

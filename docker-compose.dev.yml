@@ -1,10 +1,40 @@
-# Dev-only overlay. Adds api/worker/client with hot reload + dev tooling.
+# Dev-only overlay. Adds api / dagster / client with hot reload + dev tooling.
 # Stateful services come from docker-compose.yml.
+#
+# Dagster runs as TWO long-lived processes that both load the same code location:
+#   - dagster-webserver: HTTP UI + GraphQL
+#   - dagster-daemon:   schedules, sensors, run queue, run launcher
+# Both share state via Postgres (configs/dagster.yaml).
+
+# Anchor block for everything that needs the same Dagster + app env. Anything
+# that runs `dagster` CLI must have DAGSTER_HOME pointing at a writable dir
+# that contains the instance dagster.yaml.
+x-dagster-base: &dagster-base
+  build:
+    context: ./server
+    dockerfile: Dockerfile
+    target: dev
+  environment:
+    APP_ENV: dev
+    CONFIG_DIR: /app/configs
+    UV_PROJECT_ENVIRONMENT: /opt/venv
+    DAGSTER_HOME: /app/dagster_home
+  env_file:
+    - configs/env/.env.dev
+  volumes:
+    - ./server:/app
+    - ./configs:/app/configs:ro
+    # configs/dagster.yaml is mounted as the single file Dagster looks for at
+    # $DAGSTER_HOME/dagster.yaml. The named volume persists run logs.
+    - ./configs/dagster.yaml:/app/dagster_home/dagster.yaml:ro
+    - dagster-home:/app/dagster_home/storage
+  networks:
+    - backend
 
 services:
   # Host ports use the 5xxxx range to avoid colliding with other dev stacks the
   # user might be running on the standard ports. Container-internal ports are
-  # unchanged, so the api/worker still connect via service names on default ports.
+  # unchanged, so the api still connects via service names on default ports.
   postgres:
     ports:
       - "55432:5432"
@@ -17,6 +47,11 @@ services:
     ports:
       - "6333:6333"   # HTTP + dashboard
       - "6334:6334"   # gRPC
+
+  minio:
+    ports:
+      - "19000:9000"  # S3 API
+      - "19001:9001"  # web console
 
   api:
     build:
@@ -45,35 +80,48 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - backend
       - frontend
 
-  worker:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-      target: dev
-    container_name: dp-worker
-    command: ["uv", "run", "--no-sync", "celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
-    environment:
-      APP_ENV: dev
-      CONFIG_DIR: /app/configs
-      UV_PROJECT_ENVIRONMENT: /opt/venv
-    env_file:
-      - configs/env/.env.dev
-    volumes:
-      - ./server:/app
-      - ./configs:/app/configs:ro
+  dagster-webserver:
+    <<: *dagster-base
+    container_name: dp-dagster-webserver
+    command:
+      - uv
+      - run
+      - --no-sync
+      - dagster-webserver
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3000"
+      - -m
+      - app.orchestration.definitions
+    ports:
+      - "13000:3000"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      minio:
         condition: service_healthy
-      qdrant:
+
+  dagster-daemon:
+    <<: *dagster-base
+    container_name: dp-dagster-daemon
+    command:
+      - uv
+      - run
+      - --no-sync
+      - dagster-daemon
+      - run
+    depends_on:
+      postgres:
         condition: service_healthy
-    networks:
-      - backend
+      minio:
+        condition: service_healthy
 
   client:
     # Bun 1.2+ ships a Node 24 compat layer; Vite 8 requires Node >=22.12.
@@ -101,18 +149,6 @@ services:
     networks:
       - frontend
 
-  flower:
-    image: mher/flower:2.0
-    container_name: dp-flower
-    command: ["celery", "--broker=redis://redis:6379/0", "flower", "--port=5555"]
-    ports:
-      - "5555:5555"
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - backend
-    profiles: ["devtools"]
-
 volumes:
   client-node-modules:
+  dagster-home:

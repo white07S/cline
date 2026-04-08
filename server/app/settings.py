@@ -46,7 +46,7 @@ class CorsSettings(BaseModel):
 
 class DatabaseSettings(BaseModel):
     url: PostgresDsn
-    url_sync: PostgresDsn  # used by alembic + celery result backend
+    url_sync: PostgresDsn  # used by alembic
     pool_size: int = 10
     max_overflow: int = 5
     pool_timeout_seconds: int = 30
@@ -57,7 +57,6 @@ class DatabaseSettings(BaseModel):
 class RedisSettings(BaseModel):
     url: RedisDsn
     cache_db: int = 1
-    celery_broker_db: int = 0
     ratelimit_db: int = 2
     default_ttl_seconds: int = 300
 
@@ -107,6 +106,43 @@ class AzureAuthSettings(BaseModel):
     api_audience: str | None = None
 
 
+class S3Buckets(BaseModel):
+    """Logical bucket names. Override per environment if you need to namespace by stage."""
+
+    documents: str = "documents"
+    artifacts: str = "artifacts"
+
+
+class S3Settings(BaseModel):
+    """MinIO object store config.
+
+    The object store is MinIO in every environment. `endpoint_url` always
+    points at the bundled minio service (`http://minio:9000` inside the
+    docker-compose network).
+    """
+
+    endpoint_url: str
+    region: str = "us-east-1"
+    access_key_id: SecretStr
+    secret_access_key: SecretStr
+    use_ssl: bool = False
+    # MinIO requires path-style addressing.
+    addressing_style: Literal["auto", "path", "virtual"] = "path"
+    buckets: S3Buckets = S3Buckets()
+
+
+class DagsterSettings(BaseModel):
+    """Dagster instance config knobs.
+
+    The full instance YAML lives at `configs/dagster.yaml`; this model holds
+    the small set of values our app code needs to reference at runtime.
+    """
+
+    home: Path = Path("/app/dagster_home")
+    # Logical Postgres database used by Dagster's run/event/schedule storage.
+    postgres_db: str = "dagster"
+
+
 # ── Top-level Settings ──────────────────────────────────────────
 
 
@@ -133,6 +169,8 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings
     openai: OpenAISettings
     azure: AzureAuthSettings = AzureAuthSettings()
+    s3: S3Settings
+    dagster: DagsterSettings = DagsterSettings()
 
 
 # ── Loader ──────────────────────────────────────────────────────
@@ -182,6 +220,13 @@ def _build_settings_dict() -> dict[str, object]:
     override = _read_yaml(configs_dir / f"server.{env_name}.yml")
     merged = _deep_merge(base, override)
 
+    # s3.yml is a sibling file (non-secret bucket names + addressing config).
+    # Secrets are injected from env vars below. We tuck the file's `s3:` mapping
+    # into the same merged dict so it flows through one Pydantic validation pass.
+    s3_file = _read_yaml(configs_dir / "s3.yml")
+    if s3_section := s3_file.get("s3"):
+        merged = _deep_merge(merged, {"s3": s3_section})
+
     # Inject secrets from env that aren't in YAML.
     merged["env"] = env_name
     merged.setdefault("database", {})
@@ -197,6 +242,14 @@ def _build_settings_dict() -> dict[str, object]:
 
     merged.setdefault("openai", {})
     merged["openai"]["api_key"] = os.environ["OPENAI_API_KEY"]  # type: ignore[index]
+
+    s3 = merged.setdefault("s3", {})
+    if isinstance(s3, dict):
+        s3["access_key_id"] = os.environ["S3_ACCESS_KEY_ID"]
+        s3["secret_access_key"] = os.environ["S3_SECRET_ACCESS_KEY"]
+        s3["endpoint_url"] = os.environ["S3_ENDPOINT_URL"]
+        if region := os.environ.get("S3_REGION"):
+            s3["region"] = region
 
     obs = merged.setdefault("observability", {})
     if isinstance(obs, dict):

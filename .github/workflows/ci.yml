@@ -43,6 +43,7 @@ jobs:
         with:
           version: "latest"
           enable-cache: true
+          cache-dependency-glob: "server/uv.lock"
 
       - name: Set up Python
         run: uv python install 3.13
@@ -67,7 +68,13 @@ jobs:
         working-directory: server
         env:
           DATABASE_URL: postgresql+asyncpg://app:app@localhost:5432/app_test
+          DATABASE_URL_SYNC: postgresql+psycopg://app:app@localhost:5432/app_test
           REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          OPENAI_API_KEY: sk-test-not-real
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+          S3_ENDPOINT_URL: http://localhost:9000
           APP_ENV: test
           CONFIG_DIR: ${{ github.workspace }}/configs
         run: uv run pytest -v
@@ -81,11 +88,13 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.1"
+          # Bun 1.2+ ships a Node 24 compat layer; Vite 8 requires Node >=22.12.
+          bun-version: "1.2"
 
       - name: Install dependencies
         working-directory: client
-        run: bun install --frozen-lockfile
+        # No --frozen-lockfile until we commit a bun.lock from a clean install.
+        run: bun install
 
       - name: Lint (Biome)
         working-directory: client
@@ -101,7 +110,9 @@ jobs:
 
       - name: Test (Vitest)
         working-directory: client
-        run: bun test
+        # `bun test` runs Bun's own test runner — we want vitest, which is the
+        # `test` script in package.json.
+        run: bun run test
 
       - name: Build
         working-directory: client

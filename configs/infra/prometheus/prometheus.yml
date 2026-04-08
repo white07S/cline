@@ -15,11 +15,12 @@ scrape_configs:
     static_configs:
       - targets: ["api:8000"]
 
-  # Celery worker metrics (if exposed via prometheus_client side process).
-  - job_name: worker
+  # Dagster webserver metrics (Dagster ships Prometheus metrics on the
+  # webserver process). Dagster-daemon does not expose /metrics today.
+  - job_name: dagster-webserver
     metrics_path: /metrics
     static_configs:
-      - targets: ["worker:9100"]
+      - targets: ["dagster-webserver:3000"]
 
   - job_name: redis
     static_configs:

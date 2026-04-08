@@ -86,7 +86,7 @@ def configure_logging() -> None:
         ("uvicorn.error", "INFO"),
         ("uvicorn.access", "WARNING"),
         ("sqlalchemy.engine", "WARNING"),
-        ("celery", "INFO"),
+        ("dagster", "INFO"),
         ("httpx", "WARNING"),
     ):
         logging.getLogger(name).setLevel(logging.getLevelName(lvl))

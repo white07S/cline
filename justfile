@@ -28,7 +28,7 @@ _bootstrap-hooks:
 # Dev: full stack via docker compose
 # ──────────────────────────────────────────────────────────────────
 
-# Bring up the full dev stack (postgres, redis, qdrant, api, worker, client).
+# Bring up the full dev stack (postgres, redis, qdrant, minio, api, dagster, client).
 dev:
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
@@ -48,9 +48,13 @@ logs s="api":
 api:
     cd server && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Run a Celery worker locally.
-worker:
-    cd server && uv run celery -A app.workers.celery_app worker --loglevel=info
+# Run the Dagster webserver (UI + GraphQL) locally.
+dagster-webserver:
+    cd server && uv run dagster-webserver -m app.orchestration.definitions --host 0.0.0.0 --port 3000
+
+# Run the Dagster daemon (schedules, sensors, run launcher) locally.
+dagster-daemon:
+    cd server && uv run dagster-daemon run
 
 # Run the Vite dev server locally.
 client:

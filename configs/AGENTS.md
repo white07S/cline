@@ -26,16 +26,18 @@ configs/
 ├── server.yml              # Base server config (loaded everywhere)
 ├── server.dev.yml          # Dev overrides (merged on top of server.yml)
 ├── server.prod.yml         # Prod overrides
-├── celery.yml              # Celery worker / broker / queue config
 ├── logging.yml             # structlog sinks, levels, JSON renderer settings
 ├── qdrant.yml              # Qdrant collection definitions (name, dim, distance, HNSW params)
 ├── openai.yml              # OpenAI model names, retry/timeout, embedding models
 ├── rag.yml                 # RAG behavior: chunk size, overlap, top_k, rerank
+├── s3.yml                  # Object store: region, addressing, logical bucket names (no secrets)
+├── dagster.yaml            # Dagster instance config (Postgres-backed run/event storage)
 ├── env/
 │   ├── .env.dev.example    # Template — copy to .env.dev and fill in
 │   ├── .env.prod.example   # Template — copy to .env.prod and fill in
 │   └── README.md           # Which secret each variable holds and where to get it
 └── infra/                  # Per-service infra configs (mounted into containers)
+    ├── postgres/init/      # Bootstrap SQL/shell scripts (e.g., create dagster db)
     ├── nginx/
     ├── prometheus/
     ├── grafana/
@@ -103,7 +105,7 @@ N/A for static config files, but: configs influence concurrency (worker counts, 
 
 ### 5. Ask, don't guess
 
-If you're adding a config field and you're not sure where it belongs (`server.yml` vs `celery.yml` vs `rag.yml`), or whether it's a secret or non-secret, **ask**. Configs are sticky — moving them later breaks every deployed environment.
+If you're adding a config field and you're not sure where it belongs (`server.yml` vs `dagster.yaml` vs `rag.yml`), or whether it's a secret or non-secret, **ask**. Configs are sticky — moving them later breaks every deployed environment.
 
 ## Adding a new config field — checklist
 

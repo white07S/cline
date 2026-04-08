@@ -1,0 +1,43 @@
+# Dagster instance config. Mounted into containers as $DAGSTER_HOME/dagster.yaml.
+#
+# Storage is backed by Postgres so runs/events/schedules survive restarts and
+# can be shared between dagster-webserver and dagster-daemon. The `dagster`
+# database is created by configs/infra/postgres/init/01-create-dagster-db.sh.
+#
+# Secrets (Postgres password) come from env vars — never inline them here.
+
+storage:
+  postgres:
+    postgres_db:
+      hostname:
+        env: POSTGRES_HOST
+      username:
+        env: POSTGRES_USER
+      password:
+        env: POSTGRES_PASSWORD
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port: 5432
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    # Cap concurrent runs so we don't melt the box. Tune per env.
+    max_concurrent_runs: 10
+
+run_launcher:
+  module: dagster
+  class: DefaultRunLauncher
+
+# Local compute logs live in DAGSTER_HOME so they survive container restarts
+# (DAGSTER_HOME is a named volume in compose).
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /app/dagster_home/storage/compute_logs
+
+# Telemetry: off. We don't ship usage data to Elementl.
+telemetry:
+  enabled: false

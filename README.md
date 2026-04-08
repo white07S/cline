@@ -9,7 +9,8 @@ Custom RAG, no LangChain. Built for production from day one.
 |---|---|
 | **Client** | React 19 + Vite 8 (Rolldown) + Bun + TypeScript + Tailwind v4 + TanStack Router/Query/Form + Zod + Axios + MSAL |
 | **Server** | Python 3.13 + uv + FastAPI + async SQLAlchemy 2.x + Alembic + Pydantic v2 + structlog |
-| **Workers** | Celery (Redis broker, Postgres result backend) |
+| **Orchestration** | Dagster (assets, schedules, sensors) — webserver + daemon, Postgres-backed |
+| **Object store** | MinIO (S3-compatible) via aioboto3 — same service in dev and prod |
 | **Data** | Postgres 16, Redis 7, Qdrant 1.12 |
 | **LLM** | OpenAI SDK directly (no framework) |
 | **Observability** | OpenTelemetry → Tempo (traces) + Prometheus (metrics) + Loki (logs) + Grafana, Sentry for errors |
@@ -25,14 +26,15 @@ See [`client/AGENTS.md`](client/AGENTS.md), [`server/AGENTS.md`](server/AGENTS.m
 ```
 .
 ├── client/                 # Vite + React + Bun
-├── server/                 # FastAPI + Celery + uv
+├── server/                 # FastAPI + Dagster code location + uv
 ├── configs/                # All YAML configs + per-service infra configs
-│   ├── *.yml               # App config (server, celery, logging, qdrant, openai, rag)
+│   ├── *.yml               # App config (server, logging, qdrant, openai, rag, s3)
+│   ├── dagster.yaml        # Dagster instance config (Postgres-backed run/event storage)
 │   ├── env/                # .env.*.example templates (real .env files are gitignored)
-│   └── infra/              # nginx, prometheus, grafana, loki, otel-collector, tempo
+│   └── infra/              # postgres/init, nginx, prometheus, grafana, loki, otel-collector, tempo
 ├── .github/workflows/      # CI
-├── docker-compose.yml      # Base: postgres, redis, qdrant
-├── docker-compose.dev.yml  # Dev: api, worker, client with hot reload + dev tools
+├── docker-compose.yml      # Base: postgres, redis, qdrant, minio
+├── docker-compose.dev.yml  # Dev: api, dagster (webserver+daemon), client with hot reload
 ├── docker-compose.prod.yml # Prod: replicas, nginx, full monitoring stack
 ├── justfile                # Top-level task runner
 └── README.md
@@ -59,7 +61,7 @@ cp configs/env/.env.dev.example configs/env/.env.dev
 ## Run everything (dev)
 
 ```bash
-just dev              # docker compose up: postgres, redis, qdrant, api, worker, client
+just dev              # docker compose up: postgres, redis, qdrant, minio, api, dagster, client
 ```
 
 This brings up the full stack with hot reload:
@@ -67,20 +69,23 @@ This brings up the full stack with hot reload:
 | Service | URL |
 |---|---|
 | Client (Vite dev server) | http://localhost:5173 |
-| API (FastAPI + uvicorn) | http://localhost:8000 |
-| API docs | http://localhost:8000/docs |
-| Postgres | localhost:5432 |
-| Redis | localhost:6379 |
+| API (FastAPI + uvicorn) | http://localhost:18000 |
+| API docs | http://localhost:18000/docs |
+| Dagster UI (webserver) | http://localhost:13000 |
+| Postgres | localhost:55432 |
+| Redis | localhost:56379 |
 | Qdrant dashboard | http://localhost:6333/dashboard |
-| Flower (Celery UI) | http://localhost:5555 |
-| Grafana | http://localhost:3000 (admin/admin) |
+| MinIO console | http://localhost:19001 (minioadmin/minioadmin) |
+| MinIO S3 endpoint | http://localhost:19000 |
+| Grafana (prod profile only) | http://localhost:3000 (admin/admin) |
 
 ## Run a single service locally (without docker)
 
 ```bash
-just api              # uvicorn with reload, reads configs/server.dev.yml
-just worker           # celery worker
-just client           # bun run dev
+just api                  # uvicorn with reload, reads configs/server.dev.yml
+just dagster-webserver    # Dagster UI on http://localhost:3000
+just dagster-daemon       # Dagster schedules / sensors / run launcher
+just client               # bun run dev
 ```
 
 ## Database
@@ -132,9 +137,9 @@ just prod-up          # docker compose -f docker-compose.yml -f docker-compose.p
 Production stack adds:
 - nginx (TLS termination, load balancer for `api` replicas)
 - Multiple `api` replicas (uvicorn with `--workers N` per replica)
-- Multiple `worker` replicas (Celery, queue-segmented)
+- `dagster-webserver` and `dagster-daemon` (single replica each — Dagster's daemon must be a singleton)
 - Full observability stack (Prometheus + Grafana + Loki + Tempo + OTEL Collector + cAdvisor + redis_exporter + postgres_exporter)
-- Sentry SDK enabled in `api` and `worker`
+- Sentry SDK enabled in `api` and Dagster processes
 
 ## Universal best practices
 

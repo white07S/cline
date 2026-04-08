@@ -19,7 +19,8 @@ function HomePage() {
             types from the server.
           </li>
           <li>
-            Add a query hook in <code className="rounded bg-neutral-100 px-1">src/api/queries/</code>.
+            Add a query hook in{" "}
+            <code className="rounded bg-neutral-100 px-1">src/api/queries/</code>.
           </li>
           <li>Replace this route with the real landing page.</li>
         </ol>

@@ -62,3 +62,6 @@ data/
 
 # OTEL collector temp
 otelcol-data/
+
+# Dagster instance local state — created when running dagster CLI outside docker
+server/dagster_home/

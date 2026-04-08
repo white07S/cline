@@ -1,7 +1,8 @@
 """OpenTelemetry + Sentry initialization.
 
 Call ``init_observability(app)`` in the FastAPI lifespan startup.
-Call ``init_celery_observability()`` in celery_app.py at module import time.
+Call ``init_worker_observability()`` from non-FastAPI entry points (Dagster
+code locations, scripts) so they get the same Sentry + OTEL pipeline.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ def _init_sentry() -> None:
         return
 
     import sentry_sdk
-    from sentry_sdk.integrations.celery import CeleryIntegration
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
     from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -38,7 +38,6 @@ def _init_sentry() -> None:
             FastApiIntegration(),
             StarletteIntegration(),
             SqlalchemyIntegration(),
-            CeleryIntegration(),
         ],
     )
     log.info("sentry_initialized", environment=obs.sentry_environment)
@@ -93,16 +92,12 @@ def init_observability(app: FastAPI) -> None:
     log.info("otel_instrumentation_applied", components=["fastapi", "httpx", "redis"])
 
 
-def init_celery_observability() -> None:
-    """Init OTEL + Sentry for Celery workers. Call from celery_app module."""
+def init_worker_observability() -> None:
+    """Init OTEL + Sentry for non-FastAPI processes (Dagster code locations, scripts).
+
+    No transport-specific instrumentation here — Dagster ships its own OTEL
+    integration if enabled, and httpx/redis instrumentors are applied lazily by
+    code that imports them.
+    """
     _init_sentry()
     _init_otel_tracing()
-
-    settings = get_settings()
-    if not settings.observability.otel_enabled:
-        return
-
-    from opentelemetry.instrumentation.celery import CeleryInstrumentor
-
-    CeleryInstrumentor().instrument()
-    log.info("celery_otel_instrumented")

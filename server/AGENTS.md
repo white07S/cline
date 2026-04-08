@@ -1,6 +1,6 @@
 # `server/` — agent guide
 
-FastAPI service + Celery workers for the data platform. Async-first, fully typed, custom RAG.
+FastAPI service + Dagster code location for the data platform. Async-first, fully typed, custom RAG.
 
 ## Stack
 
@@ -13,11 +13,12 @@ FastAPI service + Celery workers for the data platform. Async-first, fully typed
 | Settings | pydantic-settings + pyyaml (`yaml.safe_load`) — YAML is the source of truth |
 | ORM | SQLAlchemy 2.x (**async** style only — `AsyncSession`, `select()`, mapped classes) |
 | Migrations | Alembic — autogenerate when possible, hand-written when autogenerate is wrong (renames, data migrations) |
-| Task queue | Celery (Redis broker, Postgres result backend via `db+postgresql://...`) |
+| Orchestration | **Dagster** (assets, jobs, schedules, sensors). Postgres-backed run/event storage; multiprocess executor by default. **No Celery** — Dagster owns task execution. |
+| Object store | MinIO (every environment) via `aioboto3`. Wrapped in `app/storage/s3.py` — never call boto3 directly. |
 | Vector store | Qdrant via `qdrant-client` (async) |
 | LLM | `openai` SDK directly. **No LangChain / LlamaIndex / Instructor.** |
 | Logging | **structlog** with stdlib bridge, JSONL in prod, ConsoleRenderer in dev |
-| Observability | OpenTelemetry (FastAPI + Celery + SQLAlchemy + httpx + Redis instrumentation) → OTEL Collector |
+| Observability | OpenTelemetry (FastAPI + SQLAlchemy + httpx + Redis instrumentation) → OTEL Collector |
 | Errors | Sentry SDK (`sentry_sdk[fastapi]`) — enabled in prod |
 | Rate limiting | slowapi |
 | Request IDs | asgi-correlation-id (header → contextvar → log record) |
@@ -58,9 +59,12 @@ server/
     ├── services/              # business logic (ingestion, pipelines, rag, llm, embeddings)
     ├── vectorstore/
     │   └── qdrant.py
-    ├── workers/
-    │   ├── celery_app.py
-    │   └── tasks/
+    ├── storage/
+    │   └── s3.py              # typed aioboto3 wrapper around MinIO
+    ├── orchestration/         # Dagster code location — loaded with `-m app.orchestration.definitions`
+    │   ├── definitions.py     # the single Definitions(...) — wires assets + resources
+    │   ├── resources.py       # typed Dagster resources (e.g., S3Resource)
+    │   └── assets/            # one module per logical asset group
     ├── scripts/
     │   └── dump_openapi.py    # used by `just openapi`
     └── tests/
@@ -77,7 +81,7 @@ These restate the rules from the root `README.md`. Every PR is reviewed against 
 
 **Never use `dict[str, Any]`, `Any`, or untyped dicts for structured data.**
 
-Every payload that crosses a boundary — HTTP request/response, DB row, Celery task arg, LLM call, vector store payload, config file, internal service call — has an explicit Pydantic model. Nested objects are nested models, **not raw dicts**.
+Every payload that crosses a boundary — HTTP request/response, DB row, Dagster asset input/output, LLM call, vector store payload, object-store metadata, config file, internal service call — has an explicit Pydantic model. Nested objects are nested models, **not raw dicts**.
 
 ```python
 # ❌ NEVER
@@ -147,7 +151,8 @@ Catch only the **specific** exceptions you can meaningfully handle. Re-raise eve
 - DB boundary → wrap `IntegrityError` / `OperationalError` into domain errors.
 - LLM boundary → wrap `openai.*Error` into `LLMError` subclasses.
 - Vector store → wrap `qdrant_client.http.exceptions.*` into `VectorStoreError`.
-- Celery task boundary → use `bind=True`, log + raise. Use `task_acks_late=True` so failed tasks are redelivered.
+- Object store → `botocore.exceptions.ClientError` is wrapped into `S3Error` / `S3NotFoundError` / `S3AccessError` inside `app/storage/s3.py`. Feature code never imports botocore.
+- Dagster asset boundary → assets raise typed domain errors. Dagster's retry policy is configured per-asset in `definitions.py`; idempotency is the asset author's responsibility.
 
 Each domain has its own exception hierarchy in `app/services/<domain>/errors.py`.
 
@@ -155,8 +160,8 @@ Each domain has its own exception hierarchy in `app/services/<domain>/errors.py`
 
 This is a recurring confusion source. The rules:
 
-- **Async** = "I might be waiting on I/O — let the event loop run other tasks meanwhile." Use `async def` for any function that does I/O (DB, HTTP, OpenAI, Qdrant, Redis).
-- **Concurrent** = "Multiple things actually run at the same time." Achieved with `asyncio.gather`, `asyncio.TaskGroup`, or Celery workers.
+- **Async** = "I might be waiting on I/O — let the event loop run other tasks meanwhile." Use `async def` for any function that does I/O (DB, HTTP, OpenAI, Qdrant, Redis, S3).
+- **Concurrent** = "Multiple things actually run at the same time." Achieved with `asyncio.gather`, `asyncio.TaskGroup`, or Dagster's multiprocess executor (separate OS processes).
 - **Sequential async** is the default. Reach for `gather` only when:
   1. The operations are genuinely independent (no data dependency between them).
   2. The downstream system can handle the parallel load (rate limits, connection pool size).
@@ -176,14 +181,14 @@ async def embed_all(texts: list[str]) -> list[Embedding]:
     return await asyncio.gather(*[_one(t) for t in texts])
 ```
 
-When the work is **CPU-bound** (chunking large docs, parsing PDFs), don't use asyncio — push it to a Celery task running in a worker process. The event loop is single-threaded; CPU-bound work in `async def` blocks every other request on that worker.
+When the work is **CPU-bound** (chunking large docs, parsing PDFs), don't use asyncio — push it into a Dagster asset and let Dagster's multiprocess executor run it in a separate OS process. The event loop is single-threaded; CPU-bound work in `async def` blocks every other request on that worker.
 
 ### 5. Ask, don't guess
 
 If a schema is ambiguous, an external API contract is unclear, or a config field's intent is unknown — **stop and ask**. Guessing creates code that "works" until it silently doesn't. Examples of the kind of thing to ask about, not guess:
 
 - Does this field need to be nullable in the DB?
-- Should this Celery task be idempotent (it gets retried on failure)?
+- Should this Dagster asset be idempotent? (It will be re-run on retry — assume yes unless you can prove otherwise.)
 - What's the expected token budget for this prompt?
 - Is this user-facing or internal?
 
@@ -223,18 +228,25 @@ async def create_user(payload: CreateUserIn, db: AsyncSession = Depends(get_db_s
 
 The `get_db_session` dependency manages commit/rollback automatically — don't call `db.commit()` in route code.
 
-### Celery tasks
+### Dagster assets
+
+Add a new asset module under `app/orchestration/assets/`, then re-export it from `definitions.py` (Dagster does not auto-discover — explicit wiring is the contract).
 
 ```python
-from app.workers.celery_app import celery_app
+from dagster import AssetExecutionContext, asset
 
-@celery_app.task(name="ingest.process_document", bind=True, max_retries=3)
-def process_document(self, doc_id: str) -> None:
-    """Idempotent — safe to retry. Reads doc by id, splits, embeds, upserts."""
+from app.orchestration.resources import S3Resource
+
+@asset(group_name="ingestion", compute_kind="python")
+async def process_document(context: AssetExecutionContext, s3: S3Resource, doc_id: str) -> str:
+    """Idempotent — safe to re-run. Reads doc by id, chunks, embeds, upserts."""
     ...
 ```
 
-Task arguments must be **JSON-serializable Pydantic models or primitives**. Pass IDs, not ORM instances. Tasks are idempotent by default — design accordingly.
+- Asset inputs/outputs are typed Python values (Pydantic models, primitives) — never `dict[str, Any]`.
+- Resources are injected by name; declare them as `ConfigurableResource` subclasses in `resources.py`.
+- Assets must be **idempotent** — Dagster's retry policy will re-run them on failure.
+- For CPU-bound work, the default multiprocess executor already runs each step in its own process. No extra setup needed.
 
 ## Testing
 
@@ -263,5 +275,6 @@ Hand-written migrations are required for:
 - **uvicorn `--reload` requires single worker.** The dev compose runs `--reload`, so dev is single-process by design.
 - **`asgi-correlation-id` must come BEFORE the routes** in middleware order.
 - **OpenTelemetry instrumentation must run before any FastAPI/SQLAlchemy import** when using auto-instrumentation. We do explicit instrumentation in `app/observability.py` to avoid this.
-- **Celery task discovery**: tasks must be imported from `celery_app.py` (or via `include=`) or they won't register.
-- **`task_acks_late=True`** means a task is only ack'd after success. If a worker dies mid-task, the broker redelivers — the task **must be idempotent**.
+- **Dagster code-location discovery**: every asset, job, schedule, sensor, and resource must be wired into `app/orchestration/definitions.py`. There is no auto-discovery — if it's not in `Definitions(...)`, it doesn't exist.
+- **Dagster uses a separate Postgres database (`dagster`)** so its run/event/schedule tables don't pollute the application schema. The DB is created by `configs/infra/postgres/init/01-create-dagster-db.sh` on first postgres start.
+- **MinIO requires path-style addressing.** `S3Settings.addressing_style` defaults to `"path"` for this reason — leave it alone unless you're talking to a service that demands virtual-hosted style.

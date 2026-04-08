@@ -1,0 +1,16 @@
+# Object store config. The object store is MinIO in every environment —
+# there is no AWS S3 fallback. Secrets live in .env.{dev,prod}, never here.
+
+s3:
+  # `endpoint_url`, `access_key_id`, `secret_access_key` are injected from env vars
+  # by `_build_settings_dict` in app/settings.py — do NOT put them here.
+  region: us-east-1
+  use_ssl: false
+  # MinIO requires path-style addressing.
+  addressing_style: path
+
+  buckets:
+    # Logical → physical bucket names. Override per environment if you need to
+    # namespace by stage (e.g., documents-prod, documents-staging).
+    documents: documents
+    artifacts: artifacts
