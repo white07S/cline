@@ -12,7 +12,11 @@ from dagster import ConfigurableResource
 from app.storage.s3 import S3Client, build_s3_client
 
 
-class S3Resource(ConfigurableResource):
+# `ConfigurableResource` is generic over the value type the resource produces
+# (TResValue). With `disallow_any_generics`, mypy demands an explicit type
+# argument; for a resource that hands itself to assets (the default in
+# Dagster), the parameter is the subclass itself.
+class S3Resource(ConfigurableResource["S3Resource"]):
     """Wraps the app's S3Client so assets can `s3: S3Resource` and call methods on it.
 
     Holds no config of its own — all S3 configuration lives in the Pydantic

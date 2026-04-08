@@ -38,6 +38,9 @@ node_modules/
 client/dist/
 client/.vite/
 
+# tsc -b composite project output (vite.config.d.ts etc)
+client/.ts-build/
+
 # Generated API types — regenerate with `just openapi`
 client/src/api/openapi.json
 client/src/api/types.gen.ts

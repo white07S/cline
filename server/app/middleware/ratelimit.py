@@ -24,4 +24,9 @@ limiter = Limiter(
 
 def install(app: FastAPI) -> None:
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # slowapi's `_rate_limit_exceeded_handler` is typed as
+    # `Callable[[Request, RateLimitExceeded], Response]`, which is narrower than
+    # Starlette's `Callable[[Request, Exception], Response]` parameter — Starlette
+    # routes ALL exceptions through the registered handler at runtime, so the
+    # narrower signature is safe in practice.
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]

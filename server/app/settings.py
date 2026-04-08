@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, PostgresDsn, RedisDsn, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, PostgresDsn, RedisDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ── Sub-models ──────────────────────────────────────────────────
@@ -77,8 +77,14 @@ class ObservabilitySettings(BaseModel):
 
 
 class LoggingSettings(BaseModel):
+    # `populate_by_name=True` lets us use `json_format` as the Python attribute
+    # while the YAML keeps the natural key `json:`. We can't name the Python
+    # field `json` because Pydantic's BaseModel reserves it for the serializer
+    # method, and overriding that confuses both type checkers and runtime callers.
+    model_config = ConfigDict(populate_by_name=True)
+
     level: str = "INFO"
-    json: bool = True
+    json_format: bool = Field(default=True, alias="json")
     include_trace_id: bool = True
 
 
@@ -146,7 +152,11 @@ class DagsterSettings(BaseModel):
 # ── Top-level Settings ──────────────────────────────────────────
 
 
-class Settings(BaseSettings):
+# pydantic.mypy synthesizes a BaseSettings __init__ that includes **values: Any.
+# That collides with disallow_any_explicit, so silence explicit-any here. The
+# concrete fields below are still strictly typed — this only affects the
+# synthetic constructor signature.
+class Settings(BaseSettings):  # type: ignore[explicit-any]
     """Top-level settings — loaded from YAML + env vars."""
 
     model_config = SettingsConfigDict(

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import cast
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -59,7 +58,7 @@ def configure_logging() -> None:
 
     # Renderer for the stdlib formatter — used by both structlog and stdlib loggers.
     renderer: Processor
-    if settings.logging.json:
+    if settings.logging.json_format:
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
@@ -94,4 +93,4 @@ def configure_logging() -> None:
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Get a structlog logger. Use module __name__ as the name."""
-    return cast("structlog.stdlib.BoundLogger", structlog.stdlib.get_logger(name))
+    return structlog.stdlib.get_logger(name)

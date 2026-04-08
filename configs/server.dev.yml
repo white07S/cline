@@ -12,6 +12,13 @@ database:
   echo: true   # Log SQL in dev. Noisy but useful.
 
 observability:
+  # docker-compose.dev.yml intentionally does NOT run an otel-collector — it's
+  # a prod-only service. Leaving OTEL enabled in dev makes the SDK try to push
+  # spans to a non-existent collector and floods stdout with
+  # "Failed to export traces to otel-collector:4317" warnings on every request.
+  # Turn the exporter off entirely in dev. If you actually need traces locally,
+  # start the collector separately and override this back to true.
+  otel_enabled: false
   otel_sample_rate: 1.0
 
 logging:

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import aioboto3
-from botocore.config import Config as BotoConfig
+from aiobotocore.config import AioConfig
 from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import BaseModel
 
@@ -89,7 +89,7 @@ class S3Client:
     def __init__(self, settings: S3Settings) -> None:
         self._settings = settings
         self._session = aioboto3.Session()
-        self._boto_config = BotoConfig(
+        self._boto_config = AioConfig(
             signature_version="s3v4",
             s3={"addressing_style": settings.addressing_style},
             retries={"max_attempts": 5, "mode": "standard"},

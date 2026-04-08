@@ -37,13 +37,17 @@ export class ApiError extends Error {
 // ── Token acquisition ──────────────────────────────────────────
 
 async function acquireToken(): Promise<string | null> {
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length === 0) return null;
+  // `noUncheckedIndexedAccess` makes accounts[0] possibly undefined, so we
+  // assign it to a local and narrow before passing into MSAL (which uses
+  // exactOptionalPropertyTypes — `account?: AccountInfo` does not accept
+  // `AccountInfo | undefined`).
+  const [account] = msalInstance.getAllAccounts();
+  if (!account) return null;
 
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
-      account: accounts[0],
+      account,
     });
     return result.accessToken;
   } catch (e) {

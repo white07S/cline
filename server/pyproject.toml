@@ -120,6 +120,9 @@ select = [
 ignore = [
     "E501",             # line length handled by formatter
     "PLR0913",          # too many arguments — fastapi deps make this noisy
+    "PLC0415",          # lazy imports inside functions — used deliberately to
+                        # avoid pulling sentry / opentelemetry / qdrant at module
+                        # load time when the feature is disabled
     "TRY003",           # long messages in raise — fine
     "ANN401",           # `Any` in type annotation — we ban Any via mypy instead
 ]
@@ -147,7 +150,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/", "tests/"]
 
 [[tool.mypy.overrides]]
-module = ["slowapi.*", "qdrant_client.*", "dagster.*", "dagster_postgres.*"]
+module = ["slowapi.*", "qdrant_client.*", "dagster.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

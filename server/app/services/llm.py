@@ -9,9 +9,10 @@ Why a wrapper:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
-from openai import AsyncOpenAI, APIError, RateLimitError
+from openai import APIError, AsyncOpenAI, RateLimitError
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
 from app.logging import get_logger
@@ -74,10 +75,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
     settings = get_settings()
     client = _build_client()
 
+    # Cast through ChatCompletionMessageParam: openai's TypedDict requires the
+    # exact discriminated-union shape, but ChatMessage is a 1:1 structural
+    # match (role + content) so the cast is sound.
+    messages = cast(
+        list[ChatCompletionMessageParam],
+        [m.model_dump() for m in request.messages],
+    )
+
     try:
         completion = await client.chat.completions.create(
             model=settings.openai.chat_model,
-            messages=[m.model_dump() for m in request.messages],
+            messages=messages,
             temperature=request.temperature or settings.openai.default_temperature,
             max_tokens=request.max_tokens or settings.openai.default_max_tokens,
             stream=False,

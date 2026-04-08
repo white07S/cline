@@ -9,7 +9,7 @@ validate it; with PEP 563 string annotations the check sees a `str` and
 rejects it.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dagster import AssetExecutionContext, asset
 
@@ -25,7 +25,7 @@ async def hello_marker(context: AssetExecutionContext, s3: S3Resource) -> str:
     """
     settings = get_settings()
     bucket = settings.s3.buckets.documents
-    key = f"bootstrap/hello-{datetime.now(tz=timezone.utc).isoformat()}.txt"
+    key = f"bootstrap/hello-{datetime.now(tz=UTC).isoformat()}.txt"
     body = b"hello from dagster\n"
 
     client = s3.get_client()
