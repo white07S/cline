@@ -1,0 +1,219 @@
+# Production overlay. Multi-replica api/worker, nginx in front,
+# full observability stack (OTEL collector → Tempo + Prometheus + Loki).
+
+services:
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: prod
+    image: data-platform/api:latest
+    command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--no-access-log"]
+    environment:
+      APP_ENV: prod
+      CONFIG_DIR: /app/configs
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: api
+    env_file:
+      - configs/env/.env.prod
+    volumes:
+      - ./configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+    networks:
+      - backend
+      - frontend
+      - monitoring
+
+  worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: prod
+    image: data-platform/api:latest
+    command: ["uv", "run", "celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=4", "-Q", "ingestion,pipelines,embeddings,default"]
+    environment:
+      APP_ENV: prod
+      CONFIG_DIR: /app/configs
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: worker
+    env_file:
+      - configs/env/.env.prod
+    volumes:
+      - ./configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    networks:
+      - backend
+      - monitoring
+
+  client-build:
+    image: oven/bun:1.1-debian
+    container_name: dp-client-build
+    working_dir: /app
+    command: ["sh", "-c", "bun install --frozen-lockfile && bun run build"]
+    volumes:
+      - ./client:/app
+      - client-dist:/app/dist
+    profiles: ["build"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: dp-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./configs/infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./configs/infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./configs/infra/nginx/certs:/etc/nginx/certs:ro
+      - client-dist:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    networks:
+      - frontend
+
+  # ── Observability stack ──────────────────────────────────────────
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    container_name: dp-otel-collector
+    command: ["--config=/etc/otel/config.yml"]
+    volumes:
+      - ./configs/infra/otel-collector/otel-collector-config.yml:/etc/otel/config.yml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - tempo
+      - prometheus
+      - loki
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    container_name: dp-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./configs/infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: dp-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./configs/infra/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./configs/infra/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: dp-loki
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./configs/infra/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:3.3.0
+    container_name: dp-promtail
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ./configs/infra/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - loki
+    networks:
+      - monitoring
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: dp-tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./configs/infra/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - monitoring
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: dp-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - monitoring
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: dp-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+      - monitoring
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: dp-cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - monitoring
+
+volumes:
+  client-dist:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:

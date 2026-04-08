@@ -1,0 +1,64 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets — only .example files are committed
+configs/env/.env*
+!configs/env/.env*.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+dist/
+build/
+
+# uv
+.uv/
+
+# Node / Bun
+node_modules/
+.bun/
+*.tsbuildinfo
+
+# Vite
+client/dist/
+client/.vite/
+
+# Generated API types — regenerate with `just openapi`
+client/src/api/openapi.json
+client/src/api/types.gen.ts
+
+# TanStack Router generated route tree
+client/src/routeTree.gen.ts
+
+# Playwright
+client/playwright-report/
+client/test-results/
+client/.playwright/
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Local data volumes (if anyone bind-mounts instead of using named volumes)
+data/
+
+# OTEL collector temp
+otelcol-data/

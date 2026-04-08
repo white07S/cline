@@ -1,0 +1,118 @@
+# Dev-only overlay. Adds api/worker/client with hot reload + dev tooling.
+# Stateful services come from docker-compose.yml.
+
+services:
+  # Host ports use the 5xxxx range to avoid colliding with other dev stacks the
+  # user might be running on the standard ports. Container-internal ports are
+  # unchanged, so the api/worker still connect via service names on default ports.
+  postgres:
+    ports:
+      - "55432:5432"
+
+  redis:
+    ports:
+      - "56379:6379"
+
+  qdrant:
+    ports:
+      - "6333:6333"   # HTTP + dashboard
+      - "6334:6334"   # gRPC
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: dev
+    container_name: dp-api
+    # --no-sync: the venv was baked at /opt/venv during the image build; do not try to
+    # re-sync against the bind-mounted source (which has no .venv).
+    command: ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENV: dev
+      CONFIG_DIR: /app/configs
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+    env_file:
+      - configs/env/.env.dev
+    volumes:
+      - ./server:/app
+      - ./configs:/app/configs:ro
+    ports:
+      - "18000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+
+  worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: dev
+    container_name: dp-worker
+    command: ["uv", "run", "--no-sync", "celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      APP_ENV: dev
+      CONFIG_DIR: /app/configs
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+    env_file:
+      - configs/env/.env.dev
+    volumes:
+      - ./server:/app
+      - ./configs:/app/configs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - backend
+
+  client:
+    # Bun 1.2+ ships a Node 24 compat layer; Vite 8 requires Node >=22.12.
+    image: oven/bun:1.2-debian
+    container_name: dp-client
+    working_dir: /app
+    # Install if node_modules is empty, then start vite. The named volume persists
+    # node_modules across restarts so the install only runs on first up / after wipe.
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then
+          echo "[client] installing dependencies..."
+          bun install
+        fi
+        exec bun run dev --host 0.0.0.0
+    volumes:
+      - ./client:/app
+      - client-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    networks:
+      - frontend
+
+  flower:
+    image: mher/flower:2.0
+    container_name: dp-flower
+    command: ["celery", "--broker=redis://redis:6379/0", "flower", "--port=5555"]
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    profiles: ["devtools"]
+
+volumes:
+  client-node-modules:

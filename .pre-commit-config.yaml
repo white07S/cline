@@ -1,0 +1,50 @@
+# Run on staged files. Failing hooks block the commit — fix the underlying issue,
+# do NOT bypass with --no-verify.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Python: ruff (lint + format) and mypy
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        files: ^server/app/
+        additional_dependencies:
+          - pydantic
+          - sqlalchemy
+          - types-redis
+
+  # JS/TS: Biome (format + lint) and ESLint (react-hooks rules only)
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: biome-check
+        files: ^client/
+        additional_dependencies: ["@biomejs/biome@1.9.4"]
+
+  - repo: local
+    hooks:
+      - id: eslint-react-hooks
+        name: eslint (react-hooks rules only)
+        entry: bash -c 'cd client && bunx eslint --no-error-on-unmatched-pattern $(git diff --cached --name-only --diff-filter=ACM | grep -E "client/.*\.(ts|tsx|js|jsx)$" | sed "s|client/||")'
+        language: system
+        files: ^client/.*\.(ts|tsx|js|jsx)$
+        pass_filenames: false

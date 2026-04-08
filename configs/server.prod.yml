@@ -1,0 +1,23 @@
+# Prod overrides. Merged on top of server.yml when APP_ENV=prod.
+
+server:
+  workers: 4   # Per replica. Total = workers * replicas.
+
+cors:
+  # Lock these down to your real frontend origins before deploying.
+  allow_origins:
+    - "https://app.example.com"
+
+database:
+  pool_size: 20
+  max_overflow: 10
+  echo: false
+
+observability:
+  # Reduce sampling if trace volume becomes expensive. Start at 1.0, tune down.
+  otel_sample_rate: 1.0
+  sentry_enabled: true
+
+logging:
+  level: "INFO"
+  json: true

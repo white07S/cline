@@ -1,0 +1,26 @@
+# OpenAI client config. API key lives in .env.* — never here.
+
+openai:
+  # Default model for chat completions.
+  chat_model: "gpt-4o"
+  # Embeddings model. Must match qdrant.yml collections[*].dim.
+  embedding_model: "text-embedding-3-large"
+  embedding_dim: 3072
+
+  # Defaults — override per-call when needed.
+  default_temperature: 0.2
+  default_max_tokens: 2048
+  default_timeout_seconds: 60
+
+  retry:
+    max_attempts: 3
+    initial_backoff_seconds: 1.0
+    max_backoff_seconds: 30.0
+
+  # If you switch to Azure OpenAI later, set these and add AZURE_OPENAI_* secrets.
+  azure:
+    enabled: false
+    endpoint: ""
+    api_version: "2024-10-21"
+    deployment_chat: ""
+    deployment_embedding: ""

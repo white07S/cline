@@ -1,0 +1,6 @@
+# Bun configuration. Bun is the package manager + script runner.
+# Build / dev / test go through Vite + Vitest, NOT bun's own bundler/test runner.
+
+[install]
+exact = false
+auto = "auto"

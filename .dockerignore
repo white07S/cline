@@ -1,0 +1,36 @@
+# Avoid sending host-only files into build context.
+.git
+.github
+.gitignore
+.editorconfig
+.dockerignore
+.pre-commit-config.yaml
+README.md
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.venv
+**/venv
+**/dist
+**/build
+
+# Node / Bun
+**/node_modules
+**/.bun
+**/dist
+**/.vite
+
+# Generated
+client/src/api/types.gen.ts
+client/src/api/openapi.json
+client/src/routeTree.gen.ts
+
+# Local data
+data/
+logs/
+configs/env/.env*
+!configs/env/.env*.example

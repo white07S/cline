@@ -1,0 +1,29 @@
+# RAG pipeline behavior knobs. Tune empirically per dataset.
+
+rag:
+  chunking:
+    # Token-based chunking. Sentences are kept whole; chunks may be slightly larger
+    # than `target_tokens` to avoid splitting mid-sentence.
+    target_tokens: 512
+    overlap_tokens: 64
+    min_tokens: 50
+
+  retrieval:
+    # How many candidates to pull from the vector store before reranking.
+    top_k: 20
+    # Final number of chunks fed into the prompt after rerank.
+    final_k: 5
+    # Score threshold below which a chunk is dropped (cosine similarity).
+    min_score: 0.3
+
+  rerank:
+    # Set enabled=true once you've added a reranker. Off by default — pure vector
+    # retrieval is the simpler baseline.
+    enabled: false
+    model: ""
+
+  prompt:
+    # Hard cap on context tokens passed to the model. Prevents prompt blowup.
+    max_context_tokens: 6000
+    # Reserved budget for the user question + system prompt.
+    prompt_overhead_tokens: 1000

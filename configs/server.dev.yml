@@ -1,0 +1,19 @@
+# Dev overrides. Merged on top of server.yml when APP_ENV=dev.
+
+server:
+  workers: 1   # uvicorn --reload requires single worker.
+
+cors:
+  allow_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+database:
+  echo: true   # Log SQL in dev. Noisy but useful.
+
+observability:
+  otel_sample_rate: 1.0
+
+logging:
+  level: "DEBUG"
+  json: false  # Pretty console output in dev.

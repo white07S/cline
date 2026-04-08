@@ -1,0 +1,70 @@
+# Base compose file. Defines the stateful services used in BOTH dev and prod.
+# Run together with docker-compose.dev.yml or docker-compose.prod.yml — see justfile.
+#
+# Versions are pinned intentionally. `latest` causes silent breakage on rebuilds.
+
+name: data-platform
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    container_name: dp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: dp-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: dp-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
+  qdrant-data:
+
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
+  monitoring:
+    driver: bridge

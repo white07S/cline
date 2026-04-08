@@ -1,0 +1,29 @@
+# structlog configuration. Read by server/app/logging.py.
+#
+# In dev: pretty console output via ConsoleRenderer.
+# In prod: JSONL via JSONRenderer, one line per log event, ready for promtail → Loki.
+#
+# Both modes route through stdlib logging so FastAPI / uvicorn / SQLAlchemy / Celery
+# logs flow through the same pipeline.
+
+logging:
+  # Library log levels. Anything not listed inherits from root_level.
+  root_level: "INFO"
+
+  loggers:
+    "uvicorn": "INFO"
+    "uvicorn.error": "INFO"
+    "uvicorn.access": "WARNING"        # uvicorn access log is noisy; we use OTEL spans instead.
+    "sqlalchemy.engine": "WARNING"     # Set to INFO to see all SQL.
+    "celery": "INFO"
+    "httpx": "WARNING"
+    "openai": "INFO"
+
+  processors:
+    # Order matters. Each processor mutates the event dict in turn.
+    add_log_level: true
+    add_logger_name: true
+    add_timestamp: true                # ISO-8601 UTC.
+    add_trace_id: true                 # OTEL trace_id + span_id, if available.
+    add_caller_info: false             # Expensive — leave off in prod.
+    format_exc_info: true              # Render tracebacks as multi-line strings.

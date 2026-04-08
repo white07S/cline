@@ -1,0 +1,29 @@
+# Qdrant collection definitions. The server applies these at startup —
+# missing collections are created, existing collections are NOT modified
+# (changing dim or distance requires a rebuild, which is a manual decision).
+
+qdrant:
+  # Connection URL is taken from QDRANT_URL env var.
+  prefer_grpc: true
+  timeout_seconds: 30
+
+  # Each entry under `collections` defines one Qdrant collection.
+  # Edit dim/distance only if you are also planning to recreate the collection.
+  collections:
+    - name: documents
+      dim: 3072                          # OpenAI text-embedding-3-large
+      distance: Cosine
+      on_disk_payload: true              # Keep payloads on disk; only vectors stay in RAM.
+      hnsw:
+        m: 16                            # Edges per layer. Higher = more recall, more memory.
+        ef_construct: 128                # Build-time accuracy/speed tradeoff.
+        full_scan_threshold: 10000
+
+    - name: chunks
+      dim: 3072
+      distance: Cosine
+      on_disk_payload: true
+      hnsw:
+        m: 16
+        ef_construct: 128
+        full_scan_threshold: 10000

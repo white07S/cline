@@ -1,0 +1,60 @@
+# Base server config. Loaded by pydantic-settings in every environment.
+# Environment-specific overrides live in server.{dev,prod}.yml.
+#
+# Secrets DO NOT belong here — they live in configs/env/.env.{dev,prod}.
+
+app:
+  name: data-platform
+  version: "0.1.0"
+  # `env` is bound from the APP_ENV environment variable, not this file.
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  # uvicorn worker count. Overridden in prod.
+  workers: 1
+  # Max request body size in MB.
+  max_body_size_mb: 50
+
+cors:
+  # Restrict in production overrides. Wide open here would be a foot-gun.
+  allow_origins: []
+  allow_credentials: true
+  allow_methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+  allow_headers: ["*"]
+
+database:
+  # Pool sized for sustained throughput. pool_size is per-process; total
+  # connections to Postgres = pool_size * workers * replicas. Tune accordingly.
+  pool_size: 10
+  max_overflow: 5
+  pool_timeout_seconds: 30
+  pool_recycle_seconds: 1800
+  echo: false
+
+redis:
+  # Used for: distributed cache, Celery broker, rate limiting.
+  # DB indexes are split so each subsystem is isolated.
+  cache_db: 1
+  celery_broker_db: 0
+  ratelimit_db: 2
+  default_ttl_seconds: 300
+
+ratelimit:
+  # Per-IP defaults. Override per-route in code via slowapi decorators.
+  default_per_minute: 60
+  auth_per_minute: 10
+
+observability:
+  # OTEL endpoints are wired via env vars (OTEL_EXPORTER_OTLP_ENDPOINT) so the
+  # service name and sample rate are the only knobs we expose here.
+  otel_enabled: true
+  otel_sample_rate: 1.0    # Override to 0.1 in prod if volume is high.
+  prometheus_enabled: true
+  sentry_enabled: false    # Enabled per-env in server.prod.yml.
+
+logging:
+  # Forwarded to logging.yml-driven structlog setup.
+  level: "INFO"
+  json: true               # JSONL in stdout. Disabled in dev override for readability.
+  include_trace_id: true   # Pulls OTEL trace_id into every log record.
