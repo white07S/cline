@@ -104,6 +104,13 @@ jobs:
         working-directory: client
         run: bunx eslint .
 
+      - name: Generate route tree
+        working-directory: client
+        # routeTree.gen.ts is gitignored — produced by the TanStack Router Vite
+        # plugin during dev/build. tsc --noEmit needs it on disk, so generate
+        # it standalone before typecheck.
+        run: bun run generate-routes
+
       - name: Typecheck (tsc)
         working-directory: client
         run: bunx tsc --noEmit

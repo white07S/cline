@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "lint": "biome check . && eslint .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit",
+    "generate-routes": "node scripts/generate-routes.mjs",
+    "typecheck": "node scripts/generate-routes.mjs && tsc --noEmit",
     "e2e": "playwright test"
   },
   "dependencies": {
